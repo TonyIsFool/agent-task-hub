@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="760" viewBox="0 0 560 760" font-family="'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <title>Agent Task Hub pane (illustration with made-up chats)</title>
+  <defs>
+    <clipPath id="frame"><rect width="560" height="760" rx="12"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="560" height="760" fill="#1b1b1b"/>
+    <!-- Pane title bar -->
+    <rect width="560" height="44" fill="#222222"/>
+    <text x="20" y="28" font-size="15" fill="#d9d9d9">Agent Task Hub</text>
+    <text x="512" y="28" font-size="15" fill="#8c8c8c">⤢</text>
+    <text x="536" y="28" font-size="15" fill="#8c8c8c">✕</text>
+    <line x1="0" y1="44.5" x2="560" y2="44.5" stroke="#2f2f2f"/>
+
+    <!-- Project header -->
+    <text x="24" y="84" font-size="20" font-weight="600" fill="#f2f2f2">my-app</text>
+    <text x="24" y="106" font-size="13" fill="#9b9b9b">4 sessions · 2 working · 1 waiting · 1 scheduled</text>
+
+    <!-- File conflict -->
+    <text x="24" y="142" font-size="13" fill="#ef6b6b">▲</text>
+    <text x="44" y="142" font-size="13" font-weight="600" fill="#ef6b6b">Same file edited by 2 chats: web/index.html</text>
+    <text x="44" y="162" font-size="13" fill="#9b9b9b">Fix login bug, Landing page copy</text>
+
+    <!-- Chat 1: needs approval -->
+    <circle cx="29" cy="203" r="5" fill="#e5a33a"/>
+    <text x="44" y="208" font-size="15" font-weight="600" fill="#f2f2f2">Fix login bug</text>
+    <text x="536" y="208" font-size="13" font-weight="600" fill="#e5a33a" text-anchor="end">Needs approval</text>
+    <text x="44" y="236" font-size="13" fill="#8c8c8c">Project</text>
+    <text x="150" y="236" font-size="13" font-weight="600" fill="#e6e6e6">web</text>
+    <text x="44" y="259" font-size="13" fill="#8c8c8c">Plan</text>
+    <text x="150" y="259" font-size="14" fill="#e6e6e6">Run the auth tests <tspan fill="#9b9b9b">Step 3 of 5</tspan></text>
+    <rect x="150" y="266" width="370" height="4" rx="2" fill="#333333"/>
+    <rect x="150" y="266" width="185" height="4" rx="2" fill="#4c8dff"/>
+    <text x="44" y="292" font-size="13" fill="#8c8c8c">Context</text>
+    <text x="150" y="292" font-size="13" fill="#e6e6e6">312k of 967k (32%) <tspan fill="#4cb860">enough for the plan</tspan></text>
+    <text x="44" y="314" font-size="13" fill="#8c8c8c">Approval</text>
+    <text x="150" y="314" font-size="13" fill="#e5a33a">Bash is waiting for Allow</text>
+
+    <!-- Chat 2: long render, tight on context -->
+    <circle cx="29" cy="357" r="5" fill="#4c8dff"/>
+    <text x="44" y="362" font-size="15" font-weight="600" fill="#f2f2f2">Render product shots</text>
+    <text x="536" y="362" font-size="13" font-weight="600" fill="#4c8dff" text-anchor="end">Working</text>
+    <text x="44" y="390" font-size="13" fill="#8c8c8c">Project</text>
+    <text x="150" y="390" font-size="13" font-weight="600" fill="#e6e6e6">renders</text>
+    <text x="44" y="413" font-size="13" fill="#8c8c8c">Plan</text>
+    <text x="150" y="413" font-size="14" fill="#e6e6e6">Render 48 frames <tspan fill="#9b9b9b">Step 2 of 4</tspan></text>
+    <rect x="150" y="420" width="370" height="4" rx="2" fill="#333333"/>
+    <rect x="150" y="420" width="139" height="4" rx="2" fill="#4c8dff"/>
+    <text x="44" y="446" font-size="13" fill="#8c8c8c">Context</text>
+    <text x="150" y="446" font-size="13" fill="#e6e6e6">588k of 967k (61%) <tspan fill="#e5a33a">tight: needs ~340k</tspan></text>
+    <text x="44" y="468" font-size="13" fill="#8c8c8c">Running</text>
+    <text x="150" y="468" font-size="13" fill="#e6e6e6">Render 48 frames · 14m</text>
+
+    <!-- Chat 3: this chat, plan done -->
+    <circle cx="29" cy="511" r="5" fill="#4c8dff"/>
+    <text x="44" y="516" font-size="15" font-weight="600" fill="#f2f2f2">Landing page copy</text>
+    <text x="536" y="516" font-size="13" font-weight="600" fill="#4c8dff" text-anchor="end">This chat</text>
+    <text x="44" y="544" font-size="13" fill="#8c8c8c">Project</text>
+    <text x="150" y="544" font-size="13" font-weight="600" fill="#e6e6e6">web</text>
+    <text x="44" y="567" font-size="13" fill="#8c8c8c">Plan</text>
+    <text x="150" y="567" font-size="13" fill="#4cb860">Done · 3 steps</text>
+    <text x="44" y="590" font-size="13" fill="#8c8c8c">Context</text>
+    <text x="150" y="590" font-size="13" fill="#e6e6e6">157k of 967k (16%)</text>
+
+    <!-- Chat 4: idle, on a schedule -->
+    <circle cx="29" cy="633" r="5" fill="none" stroke="#8c8c8c" stroke-width="1.5"/>
+    <text x="44" y="638" font-size="15" font-weight="600" fill="#f2f2f2">Nightly report</text>
+    <text x="536" y="638" font-size="13" font-weight="600" fill="#8c8c8c" text-anchor="end">Idle 25m</text>
+    <text x="44" y="666" font-size="13" fill="#8c8c8c">Project</text>
+    <text x="150" y="666" font-size="13" font-weight="600" fill="#e6e6e6">reports</text>
+    <text x="44" y="689" font-size="13" fill="#8c8c8c">Scheduled</text>
+    <text x="150" y="689" font-size="13" fill="#e6e6e6">Every 30 min · next 14:30 · last ran 4m ago</text>
+
+    <!-- Folded idle chats -->
+    <text x="24" y="734" font-size="13" fill="#8c8c8c">Show 2 earlier chats</text>
+  </g>
+</svg>

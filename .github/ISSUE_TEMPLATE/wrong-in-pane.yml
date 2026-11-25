@@ -1,0 +1,47 @@
+name: Something wrong in the pane
+description: A chat is missing, a status or number looks wrong, or the pane looks broken.
+title: "[Pane] "
+labels: ["pane"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Remove chat names, file paths and anything private before posting.** A screenshot is welcome if it shows nothing private.
+  - type: textarea
+    id: what
+    attributes:
+      label: What did the pane show, and what did you expect?
+      description: For example "a chat that was waiting for my approval showed as Working".
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part?
+      options:
+        - Status (working, waiting, approval)
+        - Plan progress
+        - Context and forecast
+        - Scheduled work
+        - File conflicts
+        - A chat is missing or should not be there
+        - Look and layout
+        - Something else
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where do you use Claude Code?
+      options:
+        - Desktop app
+        - Terminal
+        - VS Code
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Agent Task Hub version
+      description: Shown by `claude plugin list`.
+      placeholder: "0.2.0"

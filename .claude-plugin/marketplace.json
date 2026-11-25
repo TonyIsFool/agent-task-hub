@@ -1,0 +1,14 @@
+{
+  "name": "agent-task-hub",
+  "owner": {
+    "name": "TonyIsFool"
+  },
+  "description": "Agent Task Hub: every Claude Code chat in your project, in one pane beside the chat.",
+  "plugins": [
+    {
+      "name": "agent-task-hub",
+      "source": "./",
+      "description": "One pane for all your chats: progress, context left, scheduled tasks, what is waiting on you, and file conflicts."
+    }
+  ]
+}
