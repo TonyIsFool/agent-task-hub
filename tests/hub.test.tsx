@@ -6,11 +6,18 @@ import {
   cleanTitle,
   findConflicts,
   forecast,
+  fullColor,
   ingestChunk,
   isInside,
+  nameList,
   needsEnglish,
+  statusSummary,
+  timeLeft,
+  usageName,
   newTracker,
   projectOf,
+  toolLabel,
+  utf8Decode,
   utf8Length,
   verdictLabel,
 } from '../hooks/parse'
@@ -19,7 +26,7 @@ import {
 const ZH_NAME = '\u7259\u9f7f\u6a21\u578b'
 const ZH_STEP = '\u8bfb\u53d6\u53c2\u8003\u56fe'
 const ZH_WORD = '\u773c\u775b'
-import { describeCron, nextCronMs, parseBeacon, pickAnnouncer, scheduleLine } from '../hooks/beacon'
+import { describeCron, nextCronMs, parseBeacon, parsePidList, pickAnnouncer, scheduleLine, staleBeaconFiles } from '../hooks/beacon'
 
 // ---------- Pure logic ----------
 
@@ -220,9 +227,36 @@ const TITLES: Record<string, string> = { [ZH_NAME]: 'Tooth model', [ZH_STEP]: '"
 /** Anything a person would read as not English (the pane's own marks allowed). */
 const NOT_ENGLISH = /[^\u0020-\u007e\u2026\u00b7\u25cf\u25cb\u25b2\u2588\u2591]/
 const norm = (p: string) => p.replace(/\\/g, '/')
+/** When a fake file was last written: a status file's own heartbeat, else never. */
+const writtenAt = (path: string): number => {
+  try {
+    return Number(JSON.parse(files[path] ?? '').at) || 0
+  } catch {
+    return 0
+  }
+}
+/** Every path the mod read or wrote, to check what it skips. */
+const reads: string[] = []
+const writes: string[] = []
+/** Every command the mod ran. */
+const runs: { argv: readonly string[]; init?: { cwd?: string } }[] = []
+/** This chat's id as the engine reports it: a /clear changes it. */
+let selfIdNow = SELF
+/** Where this chat draws: none for `claude -p` or a chat not on screen. */
+let surfacesNow: string[] = ['desktop']
+/** The context breakdown the engine reports, when a test sets one. */
+let breakdownNow: object | undefined
+let modelCalls = 0
+/** The usage windows the engine reports, when a test sets them. */
+let rateLimitsNow: object[] = []
+/** What the mod put in the status line. */
+const statusLines: string[] = []
+/** When set, listing the live sessions fails, as a busy disk might. */
+let isSessionListFailing = false
+let sessionLists = 0
 
 /** Stands in for the engine: a fake config folder, clock and session. */
-async function world($: any, on: any, tokens: number, at = '2026-11-25T08:05:00.000Z') {
+async function world($: any, on: any, tokens: number, at = '2026-11-25T08:05:00.000Z', env: Record<string, string> = {}) {
   on('command.register', () => ({ value: { command: 'task-hub' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   const toasts: string[] = []
@@ -233,21 +267,33 @@ async function world($: any, on: any, tokens: number, at = '2026-11-25T08:05:00.
   const session = mock.session(on)
   const clock = mock.clock(on)
   await clock.set(Date.parse(at))
-  mock.env(on, { USERPROFILE: 'C:/home/me' })
+  mock.env(on, { USERPROFILE: 'C:/home/me', ...env })
   mock.store(on)
+  on('session.surfaces', () => ({ value: surfacesNow }))
+  on('ui.status', (_: any, e: any) => {
+    statusLines.push(JSON.stringify(e))
+    return { value: undefined }
+  })
   on('model.complete', (_, e: any) => {
+    modelCalls++
     if (modelFails) return { value: { isAnswered: false, reason: 'api-error', usage: {} } }
     const asked = Object.keys(TITLES).find(k => String(e.prompt).includes(k))
     return { value: { isAnswered: true, text: asked ? TITLES[asked] : 'Untitled', usage: {} } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('session.id', () => ({ value: SELF }))
+  on('session.id', () => ({ value: selfIdNow }))
   // The shell moved into a subfolder; the project root is still Github.
   on('session.cwd', () => ({ value: 'C:\\home\\me\\Github\\teeth' }))
   on('session.root', () => ({ value: 'C:\\home\\me\\Github' }))
-  on('session.usage', () => ({ value: { startedAt: 0, rateLimits: [], context: { window: 1_000_000, tokens } } }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, rateLimits: rateLimitsNow, context: { window: 1_000_000, tokens, ...(breakdownNow ? { breakdown: breakdownNow } : {}) } },
+  }))
   on('fs.list', (_, e: any) => {
     const dir = norm(e.path)
+    if (dir.endsWith('/sessions')) {
+      sessionLists++
+      if (isSessionListFailing) throw new Error('the disk is busy')
+    }
     const names = new Set<string>()
     for (const f of Object.keys(files)) {
       if (f.startsWith(dir + '/')) names.add(f.slice(dir.length + 1).split('/')[0])
@@ -257,21 +303,27 @@ async function world($: any, on: any, tokens: number, at = '2026-11-25T08:05:00.
         name,
         kind: name.includes('.') ? 'file' : 'directory',
         size: 0,
-        mtimeMs: 0,
+        // A status file was last written at its heartbeat; other files' times are not used.
+        mtimeMs: writtenAt(`${dir}/${name}`),
         isLink: false,
       })),
     }
   })
   on('fs.exists', (_, e: any) => ({ value: norm(e.path) in files }))
   on('fs.write', (_, e: any) => {
+    writes.push(norm(e.path))
     files[norm(e.path)] = e.text
     return { value: undefined }
   })
-  on('process.run', () => ({ value: { exitCode: 0, stdout: TASKLIST, stderr: '' } }))
+  on('process.run', (_, e: any) => {
+    runs.push(e)
+    return { value: { exitCode: 0, stdout: TASKLIST, stderr: '' } }
+  })
   on('fs.stat', (_, e: any) => ({
     value: { kind: 'file', size: files[norm(e.path)].length, mtimeMs: Date.parse('2026-11-25T08:00:00.000Z'), isLink: false },
   }))
   on('fs.read', (_, e: any) => {
+    reads.push(norm(e.path))
     const text = files[norm(e.path)]
     const start = e.offset ?? 0
     return { value: text.slice(start, start + (e.length ?? text.length)) }
@@ -297,7 +349,7 @@ test('the pane shows this project, what needs you and conflicts', async ($, on) 
       requestId: 'agent-task-hub',
       props: { title: 'Agent Task Hub', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
     })
-    expect((await ui.find({ type: 'Text', text: /sessions/ }))?.text).toBe('4 sessions · 3 working · 2 waiting · 1 scheduled')
+    expect((await ui.find({ type: 'Text', text: /^4 chats/ }))?.text).toBe('4 chats · 3 working · 2 waiting · 1 scheduled')
     // The Game folder is outside this project.
     expect(await ui.find({ type: 'Text', text: /Game/ })).toBe(undefined)
     expect(await ui.find({ type: 'Text', text: /^Waiting for you$/ })).not.toBe(undefined)
@@ -389,7 +441,7 @@ test('chats idle for over an hour fold into one line that opens on press', async
   await ui.unmount()
 })
 
-test('with openOnStart off, a new chat does not open the pane', { options: { openOnStart: false } }, async ($, on) => {
+test('/task-hub auto off keeps new chats from opening the pane; auto on brings it back', async ($, on) => {
   let opened = 0
   on('ui.open', () => {
     opened += 1
@@ -398,8 +450,17 @@ test('with openOnStart off, a new chat does not open the pane', { options: { ope
   on('command.register', () => ({ value: { command: 'task-hub' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   mock.clock(on)
+  mock.store(on)
+  const text = async (args: string) => ((await $.command.run({ command: 'task-hub', args })) as any)?.text as string
+
+  expect(await text('auto off')).toBe('New chats will no longer open the pane. Type /task-hub to open it.')
   await $.session.start({ cwd: ROOT, surface: 'desktop', isInteractive: true })
   expect(opened).toBe(0)
+  expect(await text('auto')).toContain('do not open')
+
+  expect(await text('auto on')).toBe('New chats will open the Agent Task Hub pane on their own.')
+  expect(await text('auto')).toContain('New chats open the pane')
+  expect(await text('something else')).toContain('Usage:')
 })
 
 // ---------- v2: shared status files ----------
@@ -446,28 +507,47 @@ test('this chat publishes its own status file, and its scheduled tasks after eac
   for (const event of ['Stop', 'UserPromptSubmit', 'PermissionRequest', 'PostToolUse'] as const) {
     on(`classic.${event}`, () => ({}))
   }
-  let surfaces: string[] = []
-  on('session.surfaces', () => ({ value: surfaces }))
-  await world($, on, 50_000)
+  surfacesNow = []
+  const { clock } = await world($, on, 50_000)
   const mine = () => parseBeacon(files[`${CLAUDE}/agent-task-hub/${SELF}.json`] ?? '')
+  // The hooks return at once and write in the background: wait for the write to land.
+  const eventually = async (check: () => boolean) => {
+    for (let i = 0; i < 50 && !check(); i++) await clock.settle()
+    return check()
+  }
   expect(mine()?.tokens).toBe(50_000)
   // A run with no window (claude -p) never counts as the chat in front of the person.
   const typedBefore = mine()?.lastPromptMs
   await $.classic.UserPromptSubmit({ prompt: 'hi', source: 'user' } as any)
+  await eventually(() => false) // let any background write finish
   expect(mine()?.lastPromptMs).toBe(typedBefore)
-  surfaces = ['desktop']
+  surfacesNow = ['desktop']
   await $.classic.Stop({
     stop_hook_active: false,
     session_crons: [{ id: 'x', schedule: '0 9 * * *', recurring: true, prompt: 'daily report' }],
     background_tasks: [],
   } as any)
+  expect(await eventually(() => mine()?.crons.length === 1)).toBe(true)
   expect(mine()?.crons.map(c => c.schedule)).toEqual(['0 9 * * *'])
   await $.classic.UserPromptSubmit({ prompt: 'hi', source: 'user' } as any)
-  expect(mine()?.lastPromptMs).not.toBe(undefined)
+  expect(await eventually(() => mine()?.lastPromptMs !== undefined)).toBe(true)
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: {} } as any)
-  expect(mine()?.permission?.tool).toBe('Bash')
+  expect(await eventually(() => mine()?.permission?.tool === 'Bash')).toBe(true)
   await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: {}, tool_use_id: 't' } as any)
-  expect(mine()?.permission).toBe(undefined)
+  expect(await eventually(() => mine()?.permission === undefined)).toBe(true)
+})
+
+test('a byte read stands in when a text read of a big file is refused', async () => {
+  const bytes = new TextEncoder().encode('{"a":"\u00e9\u4e2d"}\n')
+  expect(utf8Decode(bytes)).toBe('{"a":"\u00e9\u4e2d"}\n')
+})
+
+test('plan steps with no plan in the tail ask for a deeper read', async () => {
+  const t = newTracker()
+  ingestChunk(t, assistant(100, [{ name: 'mcp__ccd_turn__update_plan', input: { advance: true } }]))
+  expect(t.isPlanOrphan).toBe(true)
+  ingestChunk(t, assistant(200, [{ name: 'mcp__ccd_turn__update_plan', input: { items: [{ content: 'A', status: 'in_progress' }] } }]))
+  expect(t.isPlanOrphan).toBe(false)
 })
 
 test('only the chat typed in last shows toasts', async ($, on) => {
@@ -494,3 +574,560 @@ test('only the chat typed in last shows toasts', async ($, on) => {
   }
 })
 
+
+// ---------- 0.2.1: fewer reads and writes ----------
+
+test('status files of stopped chats are skipped without being read', async ($, on) => {
+  const old = `${CLAUDE}/agent-task-hub/old-9999.json`
+  files[old] = JSON.stringify({ v: 1, sessionId: 'old-9999', at: Date.parse('2026-11-20T08:00:00.000Z'), crons: [], wakes: 0 })
+  try {
+    reads.length = 0
+    await world($, on, 50_000)
+    expect(reads.filter(p => p === old).length).toBe(0)
+    // A fresh one is still read.
+    expect(reads.some(p => p.endsWith('/agent-task-hub/zh-3333.json'))).toBe(true)
+  } finally {
+    delete files[old]
+  }
+})
+
+test('this chat rewrites its status file only on a change or for the heartbeat', async ($, on) => {
+  const mine = () => writes.filter(p => p.endsWith(`/agent-task-hub/${SELF}.json`)).length
+  const { clock } = await world($, on, 50_000)
+  const after = mine()
+  // Nothing changed and less than 30 s passed: no write.
+  await clock.advance(10_000)
+  await $.command.run({ command: 'task-hub' })
+  await clock.settle()
+  expect(mine()).toBe(after)
+  // The heartbeat is due: one write.
+  await clock.advance(30_000)
+  await $.command.run({ command: 'task-hub' })
+  await clock.settle()
+  expect(mine()).toBe(after + 1)
+})
+
+test('a pane nobody sees refreshes every 30 s; a shown one every 5 s', async ($, on) => {
+  const { clock } = await world($, on, 50_000)
+  const refreshes = () => reads.filter(p => p.endsWith('/sessions/1.json')).length
+  // Hidden: 10 s pass without a refresh.
+  let before = refreshes()
+  await clock.advance(10_000)
+  await clock.settle()
+  expect(refreshes()).toBe(before)
+  // Drawn: the next 5-second tick refreshes again.
+  const ui = await $.ui.mount(PANE_AT('desktop'))
+  before = refreshes()
+  await clock.advance(5_000)
+  await clock.settle()
+  expect(refreshes()).toBeGreaterThan(before)
+  await ui.unmount()
+})
+
+test('a pane shown again after being hidden catches up at once', async ($, on) => {
+  const { clock } = await world($, on, 50_000)
+  // Hidden for 20 s: no refresh, so the data is 20 s old.
+  await clock.advance(20_000)
+  await clock.settle()
+  const before = reads.filter(p => p.endsWith('/sessions/1.json')).length
+  // Drawing it refreshes right away, without waiting for the next tick.
+  const ui = await $.ui.mount(PANE_AT('desktop'))
+  await clock.settle()
+  expect(reads.filter(p => p.endsWith('/sessions/1.json')).length).toBeGreaterThan(before)
+  await ui.unmount()
+})
+
+// ---------- Long-running panes and other systems ----------
+
+test('process lists parse on Windows, macOS and Linux', async () => {
+  const windows = '"claude.exe","101","Console","1","9 K"\r\n"node.exe","2002","Console","1","1 K"\r\nINFO: junk\r\n'
+  expect([...parsePidList(windows, true)].sort()).toEqual(['101', '2002'])
+  // `ps -A -o pid=` right-aligns the ids.
+  const ps = '    1\n  423\n10234\n\n'
+  expect([...parsePidList(ps, false)].sort()).toEqual(['1', '10234', '423'])
+  expect(parsePidList('', false).size).toBe(0)
+})
+
+test('a chat gone for over 10 minutes is forgotten, and read afresh if it returns', async ($, on) => {
+  const { clock } = await world($, on, 50_000)
+  const record = `${CLAUDE}/sessions/2.json`
+  const transcript = `${CLAUDE}/projects/C--home-me-Github-eye/${OTHER}.jsonl`
+  const saved = files[record]
+  delete files[record]
+  try {
+    await clock.advance(11 * 60_000)
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+  } finally {
+    files[record] = saved
+  }
+  reads.length = 0
+  await $.command.run({ command: 'task-hub' })
+  await clock.settle()
+  // Forgotten, so its transcript is read again from the start.
+  expect(reads.filter(p => p === transcript).length).toBeGreaterThan(0)
+})
+
+test('AGENT_TASK_HUB_NOTE_AT lowers the near-compaction threshold', async ($, on) => {
+  // 50k of 1M is 5%: over a 1% threshold, far under the usual 85%.
+  const { session } = await world($, on, 50_000, '2026-11-25T08:05:00.000Z', { AGENT_TASK_HUB_NOTE_AT: '0.01' })
+  const notes = session.appended().filter((r: any) => JSON.stringify(r).includes('Agent Task Hub: context'))
+  expect(notes.length).toBe(1)
+})
+
+// ---------- /clear, dialogs, failures and old files ----------
+
+/** Waits for the mod's background writes to land. */
+async function eventually(clock: any, check: () => boolean) {
+  for (let i = 0; i < 50 && !check(); i++) await clock.settle()
+  return check()
+}
+
+test('connector tools read as a person would say them', async () => {
+  expect(toolLabel('mcp__Claude_Browser__navigate')).toBe('navigate (Claude Browser)')
+  expect(toolLabel('mcp__ccd_session__start_session')).toBe('start_session (ccd session)')
+  expect(toolLabel('Bash')).toBe('Bash')
+  expect(toolLabel('mcp__odd')).toBe('mcp__odd')
+})
+
+test('only status files the mod named, unwritten for a week, are picked to delete', async () => {
+  const now = Date.parse('2026-11-25T08:00:00.000Z')
+  const day = 86_400_000
+  const old = 'aaaaaaaa-1111-4111-8111-000000000001.json'
+  const picked = staleBeaconFiles(
+    [
+      { name: old, kind: 'file', mtimeMs: now - 8 * day },
+      { name: 'aaaaaaaa-1111-4111-8111-000000000002.json', kind: 'file', mtimeMs: now - 2 * day },
+      // Not a name the mod writes: never picked, however old.
+      { name: 'notes.json', kind: 'file', mtimeMs: now - 30 * day },
+      { name: 'aaaaaaaa-1111-4111-8111-000000000003.json.bak', kind: 'file', mtimeMs: now - 30 * day },
+      { name: 'aaaaaaaa-1111-4111-8111-000000000004.json', kind: 'directory', mtimeMs: now - 30 * day },
+      // A time that could not be read is not old.
+      { name: 'aaaaaaaa-1111-4111-8111-000000000005.json', kind: 'file', mtimeMs: 0 },
+    ],
+    now,
+    7 * day,
+  )
+  expect(picked).toEqual([old])
+})
+
+test('status files of chats gone for a week are deleted, once a day', async ($, on) => {
+  const dir = `${CLAUDE}/agent-task-hub`
+  const OLD = 'aaaaaaaa-1111-4111-8111-000000000001'
+  const RECENT = 'aaaaaaaa-1111-4111-8111-000000000002'
+  const beaconAt = (id: string, at: string) => JSON.stringify({ v: 1, sessionId: id, at: Date.parse(at), crons: [], wakes: 0 })
+  files[`${dir}/${OLD}.json`] = beaconAt(OLD, '2026-11-10T08:00:00.000Z')
+  files[`${dir}/${RECENT}.json`] = beaconAt(RECENT, '2026-11-24T08:00:00.000Z')
+  runs.length = 0
+  try {
+    const { clock } = await world($, on, 50_000)
+    const deletes = () => runs.filter(r => r.argv[0] === 'cmd')
+    expect(await eventually(clock, () => deletes().length > 0)).toBe(true)
+    // Bare names, run in the status folder itself.
+    expect(deletes().map(r => r.argv)).toEqual([['cmd', '/c', 'del', '/q', `${OLD}.json`]])
+    expect(norm(deletes()[0].init?.cwd ?? '')).toBe(dir)
+    // Not again the same day (an hour on, past the hourly look at the store). The clock
+    // jumps there rather than stepping through every 5-second refresh on the way.
+    await clock.set(Date.parse('2026-11-25T09:06:00.000Z'))
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+    expect(deletes().length).toBe(1)
+  } finally {
+    delete files[`${dir}/${OLD}.json`]
+    delete files[`${dir}/${RECENT}.json`]
+  }
+})
+
+test('after /clear this chat shows once, as the new chat, with its own status started over', async ($, on) => {
+  on('classic.UserPromptSubmit', () => ({}))
+  const { clock } = await world($, on, 50_000)
+  const beaconOf = (id: string) => parseBeacon(files[`${CLAUDE}/agent-task-hub/${id}.json`] ?? '')
+  // The fake files outlive a test: start from this chat's status file as this test writes it.
+  delete files[`${CLAUDE}/agent-task-hub/${SELF}.json`]
+  await $.command.run({ command: 'task-hub' })
+  await clock.settle()
+  await $.classic.UserPromptSubmit({ prompt: 'hi', source: 'user' } as any)
+  expect(await eventually(clock, () => beaconOf(SELF)?.lastPromptMs !== undefined)).toBe(true)
+
+  // /clear: the same process, now under a new id; no session.start says so.
+  const NEW = 'self-new-0001'
+  const record = `${CLAUDE}/sessions/1.json`
+  const transcript = `${CLAUDE}/projects/C--home-me-Github/${NEW}.jsonl`
+  const saved = files[record]
+  files[record] = saved.replace(SELF, NEW)
+  files[transcript] = assistant(1_000, [], '2026-11-25T08:05:01.000Z')
+  selfIdNow = NEW
+  try {
+    await clock.advance(5_000)
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+    const ui = await $.ui.mount(PANE_AT('desktop'))
+    // Four chats, as before: not the old one and the new one side by side.
+    expect((await ui.find({ type: 'Text', text: /^4 chats/ }))?.text).toMatch(/^4 chats · /)
+    await ui.unmount()
+    // The new chat's status file starts over: the old chat's prompt is not its own.
+    expect(await eventually(clock, () => beaconOf(NEW) !== undefined)).toBe(true)
+    expect(beaconOf(NEW)?.lastPromptMs).toBe(undefined)
+  } finally {
+    selfIdNow = SELF
+    files[record] = saved
+    delete files[transcript]
+    delete files[`${CLAUDE}/agent-task-hub/${NEW}.json`]
+  }
+})
+
+test('an approval closes when its turn ends, as on No or Esc; a subagent does not close it', async ($, on) => {
+  on('classic.PermissionRequest', () => ({}))
+  on('classic.PostToolUse', () => ({}))
+  on('turn.complete', () => ({ text: '' }))
+  const { clock } = await world($, on, 50_000)
+  const mine = () => parseBeacon(files[`${CLAUDE}/agent-task-hub/${SELF}.json`] ?? '')
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: {} } as any)
+  expect(await eventually(clock, () => mine()?.permission?.tool === 'Bash')).toBe(true)
+  // A subagent finishing its own tool, or its own turn, leaves this chat's dialog open.
+  await $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: 't', agent_id: 'sub-1' } as any)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 's1', reason: 'answer', agentId: 'sub-1' } as any)
+  await eventually(clock, () => false)
+  expect(mine()?.permission?.tool).toBe('Bash')
+  // The person said No: the turn ends as interrupted, with no classic Stop.
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: true, turnId: 't1', reason: 'aborted' } as any)
+  expect(await eventually(clock, () => mine()?.permission === undefined)).toBe(true)
+})
+
+test('a chat waiting on your approval is never called stuck', async ($, on) => {
+  const { clock, toasts } = await world($, on, 50_000)
+  const zh = `${CLAUDE}/agent-task-hub/zh-3333.json`
+  const saved = files[zh]
+  try {
+    // 11 quiet minutes, with its dialog open all along (its heartbeat kept fresh).
+    files[zh] = JSON.stringify({ ...JSON.parse(saved), at: Date.parse('2026-11-25T08:16:00.000Z') })
+    await clock.advance(11 * 60_000)
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+    const ui = await $.ui.mount(PANE_AT('desktop'))
+    expect(await ui.find({ type: 'Text', text: /^Needs approval$/ })).not.toBe(undefined)
+    expect(await ui.find({ type: 'Text', text: /may be stuck/ })).toBe(undefined)
+    await ui.unmount()
+    expect(toasts.filter(t => t.includes('may be stuck')).length).toBe(0)
+  } finally {
+    files[zh] = saved
+  }
+})
+
+test('a refresh that keeps failing does not set off another on every redraw', async ($, on) => {
+  const { clock } = await world($, on, 50_000)
+  const ui = await $.ui.mount(PANE_AT('desktop'))
+  isSessionListFailing = true
+  try {
+    const before = sessionLists
+    // Two 5-second refreshes are due, and both fail.
+    await clock.advance(10_000)
+    await clock.settle()
+    const failed = sessionLists - before
+    expect(failed).toBeGreaterThan(0)
+    expect(failed).toBeLessThan(5)
+    expect(await ui.find({ type: 'Text', text: /^Last refresh failed/ })).not.toBe(undefined)
+  } finally {
+    isSessionListFailing = false
+    await ui.unmount()
+  }
+})
+
+// ---------- Full chats, windowless runs, old questions ----------
+
+test('a chat near its limit stands out: yellow from 80%, red from 95%', async ($, on) => {
+  expect(fullColor(0.5)).toBe(undefined)
+  expect(fullColor(0.8)).toBe('warning')
+  expect(fullColor(0.95)).toBe('error')
+  await world($, on, 850_000)
+  const ui = await $.ui.mount(PANE_AT('desktop'))
+  // This chat, with no plan verdict to say so, at 85%.
+  expect((await ui.find({ type: 'Text', text: /^850k of 1M/ }))?.props.color).toBe('warning')
+  // Another at 10% stays plain.
+  expect((await ui.find({ type: 'Text', text: /^95k of 1M/ }))?.props.color).toBe(undefined)
+  await ui.unmount()
+})
+
+test('a new message ends a question asked before it', async () => {
+  const t = newTracker()
+  ingestChunk(t, assistant(100, [{ name: 'AskUserQuestion', input: {} }]))
+  expect(t.openQuestions.length).toBe(1)
+  ingestChunk(t, line({ type: 'user', message: { content: 'never mind, do B' } }))
+  expect(t.openQuestions).toEqual([])
+})
+
+test('with no window only this chat is read, and a window brings the rest without a burst of toasts', async ($, on) => {
+  surfacesNow = []
+  reads.length = 0
+  modelCalls = 0
+  const other = `${CLAUDE}/projects/C--home-me-Github-eye/${OTHER}.jsonl`
+  try {
+    const { clock, toasts } = await world($, on, 50_000)
+    expect(reads.filter(p => p === other).length).toBe(0)
+    expect(modelCalls).toBe(0)
+    // Its own status file is still kept fresh.
+    expect(parseBeacon(files[`${CLAUDE}/agent-task-hub/${SELF}.json`] ?? '')?.tokens).toBe(50_000)
+    // A window opens: the next drawing reads every chat.
+    surfacesNow = ['desktop']
+    await clock.advance(2_000)
+    const ui = await $.ui.mount(PANE_AT('desktop'))
+    await clock.settle()
+    expect(reads.filter(p => p === other).length).toBeGreaterThan(0)
+    expect((await ui.find({ type: 'Text', text: /^4 chats/ }))?.text).toMatch(/^4 chats · /)
+    // What was already waiting is noted, not announced all at once.
+    expect(toasts.length).toBe(0)
+    await ui.unmount()
+  } finally {
+    surfacesNow = ['desktop']
+  }
+})
+
+test('with auto-compaction off the reminder names the context limit', async ($, on) => {
+  breakdownNow = { isAutoCompactEnabled: false, memoryFiles: [], mcpTools: [], agents: [], apiUsage: null }
+  try {
+    const { session } = await world($, on, 50_000, '2026-11-25T08:05:00.000Z', { AGENT_TASK_HUB_NOTE_AT: '0.01' })
+    const notes = session.appended().map((r: any) => JSON.stringify(r)).filter((t: string) => t.includes('Agent Task Hub: context'))
+    expect(notes.length).toBe(1)
+    expect(notes[0]).toContain('of the 1M context limit')
+    expect(notes[0]).not.toContain('auto-compaction')
+  } finally {
+    breakdownNow = undefined
+  }
+})
+
+test('a chat that comes back after being forgotten is announced again if it still waits', async ($, on) => {
+  const { clock, toasts } = await world($, on, 50_000)
+  const eyeToasts = () => toasts.filter(t => t.includes('Eye kit:')).length
+  const before = eyeToasts()
+  const record = `${CLAUDE}/sessions/2.json`
+  const saved = files[record]
+  delete files[record]
+  try {
+    await clock.advance(11 * 60_000)
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+  } finally {
+    files[record] = saved
+  }
+  await $.command.run({ command: 'task-hub' })
+  await clock.settle()
+  // Its alert was forgotten with it: the decision it still waits on is news again.
+  expect(eyeToasts()).toBe(before + 1)
+})
+
+
+// ---------- Forks, twin names, reloads ----------
+
+test("a fork's copied lines are its parent's edits, not its own", async () => {
+  const t = newTracker('fork-1')
+  // Copied from the parent: each line still names it.
+  ingestChunk(t, line({ ...JSON.parse(assistant(100, [{ name: 'Edit', input: { file_path: 'C:/p/a.ts' } }])), sessionId: 'parent-1' }))
+  expect(Object.keys(t.edits)).toEqual(['c:/p/a.ts'])
+  expect(Object.keys(t.ownEdits)).toEqual([])
+  ingestChunk(t, line({ ...JSON.parse(assistant(200, [{ name: 'Edit', input: { file_path: 'C:/p/b.ts' } }])), sessionId: 'fork-1' }))
+  expect(Object.keys(t.ownEdits)).toEqual(['c:/p/b.ts'])
+})
+
+test('two chats of one name on one file are still two', async () => {
+  const out = findConflicts(
+    [
+      { id: '1', name: 'Fix bug', edits: { 'c:/p/a.ts': 100 } },
+      { id: '2', name: 'Fix bug', edits: { 'c:/p/a.ts': 200 } },
+    ],
+    50,
+  )
+  expect(out).toEqual([{ path: 'c:/p/a.ts', sessions: ['Fix bug', 'Fix bug'], lastMs: 200 }])
+})
+
+test('the pane ignores a fork\u2019s copied edits but counts a twin-named chat', async ($, on) => {
+  const otherTranscript = `${CLAUDE}/projects/C--home-me-Github-eye/${OTHER}.jsonl`
+  const added: Record<string, string> = {
+    // A fork of "Eye kit": its whole history copied, every line naming the parent.
+    [`${CLAUDE}/sessions/7.json`]: JSON.stringify({ sessionId: 'fork-7777', cwd: 'C:/home/me/Github/eye', name: 'Eye kit (fork)', status: 'idle', startedAt: 0 }),
+    [`${CLAUDE}/projects/C--home-me-Github-eye/fork-7777.jsonl`]: files[otherTranscript]
+      .split('\n')
+      .filter(Boolean)
+      .map(l => JSON.stringify({ ...JSON.parse(l), sessionId: OTHER }))
+      .join('\n') + '\n',
+    // Another chat called "Hub work", like this one, writing the same file itself.
+    [`${CLAUDE}/sessions/8.json`]: JSON.stringify({ sessionId: 'twin-8888', cwd: 'C:/home/me/Github', name: 'Hub work', status: 'idle', startedAt: 0 }),
+    [`${CLAUDE}/projects/C--home-me-Github/twin-8888.jsonl`]: assistant(30_000, [{ name: 'Write', input: { file_path: 'C:/home/me/Github/shared.md' } }], '2026-11-25T08:02:00.000Z'),
+  }
+  Object.assign(files, added)
+  try {
+    await world($, on, 50_000)
+    const ui = await $.ui.mount(PANE_AT('desktop'))
+    expect((await ui.find({ type: 'Text', text: /^Same file/ }))?.text).toBe('Same file edited by 3 chats: Github/shared.md')
+    expect(await ui.find({ type: 'Text', text: /^Eye kit, Hub work, Hub work$/ })).not.toBe(undefined)
+    // The fork is still a chat of its own in the list.
+    expect(await ui.find({ type: 'Text', text: /^Eye kit \(fork\)$/ })).not.toBe(undefined)
+    await ui.unmount()
+    expect(nameList(['Eye kit', 'Hub work', 'Hub work'])).toBe('Eye kit, Hub work and Hub work')
+    expect(nameList(['A', 'B'])).toBe('A and B')
+  } finally {
+    for (const path of Object.keys(added)) delete files[path]
+  }
+})
+
+test('a reminder already sent is not sent again after a reload', async ($, on) => {
+  // What the session's state holds from before /reload-plugins.
+  on('state.get', (_: any, e: any, next: any) =>
+    e.key === 'noted' ? { value: { value: `${SELF}:note:0`, version: 1 } } : next(e),
+  )
+  const { session } = await world($, on, 50_000, '2026-11-25T08:05:00.000Z', { AGENT_TASK_HUB_NOTE_AT: '0.01' })
+  const notes = session.appended().filter((r: any) => JSON.stringify(r).includes('Agent Task Hub: context'))
+  expect(notes.length).toBe(0)
+})
+
+// ---------- Finished chats, the status line, usage, time left ----------
+
+test('time left comes from the recent steps, pauses left out', async () => {
+  const min = 60_000
+  // Steps of 4, 6 and 5 minutes, then a 2-hour pause: 5 minutes a step, 3 steps left.
+  expect(timeLeft([0, 4 * min, 10 * min, 15 * min, 135 * min], 3)).toBe(15 * min)
+  expect(timeLeft([0], 3)).toBe(undefined)
+  expect(timeLeft([0, 5 * min], 0)).toBe(undefined)
+  expect(usageName('five_hour')).toBe('5h')
+  expect(usageName('seven_day')).toBe('week')
+  expect(statusSummary([{ isSelf: true, status: 'busy' }])).toBe(undefined)
+})
+
+test('a working chat that goes idle is announced as finished', async ($, on) => {
+  const { clock, toasts } = await world($, on, 50_000)
+  const record = `${CLAUDE}/sessions/5.json`
+  const saved = files[record]
+  files[record] = saved.replace('"status":"busy"', '"status":"idle"')
+  try {
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+    expect(toasts.filter(t => t.includes('Render job: finished')).length).toBe(1)
+    // Once only.
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+    expect(toasts.filter(t => t.includes('Render job: finished')).length).toBe(1)
+  } finally {
+    files[record] = saved
+  }
+})
+
+test('the status line sums up the other chats', async ($, on) => {
+  statusLines.length = 0
+  await world($, on, 50_000)
+  expect(statusLines[statusLines.length - 1]).toContain('Task hub: 2 waiting \u00b7 1 working')
+})
+
+test('usage windows show in the header, yellow from 80%', async ($, on) => {
+  rateLimitsNow = [
+    { kind: 'five_hour', percentUsed: 42 },
+    { kind: 'seven_day', percentUsed: 85 },
+  ]
+  try {
+    await world($, on, 50_000)
+    const ui = await $.ui.mount(PANE_AT('desktop'))
+    expect((await ui.find({ type: 'Text', text: /^42% of 5h$/ }))?.props.color).toBe(undefined)
+    expect((await ui.find({ type: 'Text', text: /^85% of week$/ }))?.props.color).toBe('warning')
+    await ui.unmount()
+  } finally {
+    rateLimitsNow = []
+  }
+})
+
+// ---------- Narrow panes ----------
+
+const PANE_WIDE = (columns: number) => {
+  const pane = PANE_AT('desktop')
+  return { ...pane, props: { ...pane.props, bodyColumns: columns } }
+}
+
+test('a narrow pane drops the labels and puts each chat on two lines', async ($, on) => {
+  await world($, on, 50_000)
+  const ui = await $.ui.mount(PANE_WIDE(36))
+  expect(await ui.find({ type: 'Text', text: /^Project$/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^Step 2\/2$/ })).not.toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^5%$/ })).not.toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^Working$/ })).not.toBe(undefined)
+  // What needs a look still shows, on a line of its own.
+  expect(await ui.find({ type: 'Text', text: /^Bash is waiting for Allow$/ })).not.toBe(undefined)
+  await ui.unmount()
+})
+
+test('a very narrow pane gives each chat one line: name and context', async ($, on) => {
+  await world($, on, 50_000)
+  const ui = await $.ui.mount(PANE_WIDE(22))
+  expect(await ui.find({ type: 'Text', text: /^Working$/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^Project$/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^Render job$/ })).not.toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^5%$/ })).not.toBe(undefined)
+  await ui.unmount()
+})
+
+// ---------- Wake-ups, muted toasts, the compact line ----------
+
+/** Render job goes idle; returns its finished toasts. */
+async function renderJobFinishes($: any, clock: any, toasts: string[]) {
+  const record = `${CLAUDE}/sessions/5.json`
+  const saved = files[record]
+  files[record] = saved.replace('"status":"busy"', '"status":"idle"')
+  try {
+    await $.command.run({ command: 'task-hub' })
+    await clock.settle()
+  } finally {
+    files[record] = saved
+  }
+  return toasts.filter(t => t.includes('Render job: finished')).length
+}
+
+test('a turn a scheduled wake-up started is not announced as finished', async ($, on) => {
+  const beacon = `${CLAUDE}/agent-task-hub/render-4444.json`
+  // Woken by its schedule after the person last typed in it.
+  files[beacon] = JSON.stringify({
+    v: 1,
+    sessionId: 'render-4444',
+    at: Date.parse('2026-11-25T08:04:50.000Z'),
+    crons: [{ id: 'c', schedule: '*/10 * * * *', recurring: true, prompt: 'check' }],
+    lastPromptMs: Date.parse('2026-11-25T07:00:00.000Z'),
+    lastWakeMs: Date.parse('2026-11-25T08:00:00.000Z'),
+    wakes: 3,
+  })
+  try {
+    const { clock, toasts } = await world($, on, 50_000)
+    expect(await renderJobFinishes($, clock, toasts)).toBe(0)
+  } finally {
+    delete files[beacon]
+  }
+})
+
+test('/task-hub quiet on mutes the toasts; the pane still updates', async ($, on) => {
+  const { clock, toasts } = await world($, on, 50_000)
+  const r = await $.command.run({ command: 'task-hub', args: 'quiet on' } as any)
+  expect(JSON.stringify(r)).toContain('toasts are off')
+  expect(await renderJobFinishes($, clock, toasts)).toBe(0)
+  const back = await $.command.run({ command: 'task-hub', args: 'quiet off' } as any)
+  expect(JSON.stringify(back)).toContain('toasts are on again')
+})
+
+test('the compact line carries the schedule and background work', async ($, on) => {
+  await world($, on, 50_000)
+  const ui = await $.ui.mount(PANE_WIDE(40))
+  // The Chinese chat runs on a schedule.
+  expect(await ui.find({ type: 'Text', text: /^scheduled$/ })).not.toBe(undefined)
+  await ui.unmount()
+})
+
+test('this chat has a colour of its own', async ($, on) => {
+  await world($, on, 50_000)
+  const ui = await $.ui.mount(PANE_AT('desktop'))
+  expect((await ui.find({ type: 'Text', text: /^This chat$/ }))?.props.color).toBe('merged')
+  expect((await ui.find({ type: 'Text', text: /^Working$/ }))?.props.color).toBe('suggestion')
+  await ui.unmount()
+})
+
+test('this chat stands out in a frame of its own', async ($, on) => {
+  await world($, on, 50_000)
+  const ui = await $.ui.mount(PANE_AT('desktop'))
+  const frames = (await ui.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
+  expect(frames.length).toBe(1)
+  expect(frames[0].props.borderColor).toBe('merged')
+  expect(frames[0].text).toContain('This chat')
+  await ui.unmount()
+})

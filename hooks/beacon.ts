@@ -169,3 +169,34 @@ export function scheduleLine(crons: BeaconCron[], now: number): string | undefin
   const what = crons.length === 1 ? describeCron(crons[0].schedule, crons[0].recurring) : `${crons.length} scheduled`
   return next === undefined ? what : `${what} · next ${formatWhen(next, now)}`
 }
+
+/**
+ * The process ids in a process list: `tasklist /FO CSV /NH` on Windows
+ * (`"name","1234",...` per line), `ps -A -o pid=` elsewhere (one id per line).
+ */
+export function parsePidList(stdout: string, isWindows: boolean): Set<string> {
+  const pids = new Set<string>()
+  for (const raw of stdout.split(/\r?\n/)) {
+    const line = raw.trim()
+    const pid = isWindows ? /^"[^"]*","(\d+)"/.exec(line)?.[1] : line
+    if (pid && /^\d+$/.test(pid)) pids.add(pid)
+  }
+  return pids
+}
+
+/** A status file the mod itself named: a session id (a UUID) and `.json`. */
+const BEACON_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/i
+
+/**
+ * The status files not written for longer than `maxAgeMs`: chats long gone. Only
+ * names the mod itself writes are picked, so nothing else in the folder is touched.
+ */
+export function staleBeaconFiles(
+  files: readonly { name: string; kind: string; mtimeMs: number }[],
+  now: number,
+  maxAgeMs: number,
+): string[] {
+  return files
+    .filter(f => f.kind === 'file' && BEACON_NAME.test(f.name) && f.mtimeMs > 0 && now - f.mtimeMs > maxAgeMs)
+    .map(f => f.name)
+}

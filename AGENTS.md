@@ -26,7 +26,8 @@ In Claude Code, one command at a time:
 /plugin install agent-task-hub@agent-task-hub
 ```
 
-Then start a new chat. Requirements: Claude Code 2.1.330 or later with mods. No API
+Then start a new chat. Requirements: Claude Code with mods (tested on 2.1.316 and 2.1.330). In a terminal
+narrower than 144 columns, type `/task-hub` to open the pane. No API
 key, no account, no network service.
 
 ## Commands
@@ -34,15 +35,14 @@ key, no account, no network service.
 | Command | Does |
 | --- | --- |
 | `/task-hub` | Open the pane (it also opens on its own in every new chat) |
+| `/task-hub auto off` / `auto on` | Whether new chats open the pane on their own (on by default) |
 | `/reload-plugins` | Load the mod in a chat opened before the install |
-
-Setting: `openOnStart` (`true` by default) opens the pane in every new chat.
 
 ## What it reads and writes
 
 | Reads | Writes |
 | --- | --- |
-| `~/.claude/sessions/*.json`, the chats' transcripts under `~/.claude/projects/`, and every chat's status file | One status file per chat under `~/.claude/agent-task-hub/` (about 200 bytes), and English titles in the plugin's store |
+| `~/.claude/sessions/*.json`, the chats' transcripts under `~/.claude/projects/`, and every chat's status file | One status file per chat under `~/.claude/agent-task-hub/` (about 200 bytes, deleted a week after the chat ends), and English titles in the plugin's store |
 
 It never edits, commits or deletes anything in the user's project.
 

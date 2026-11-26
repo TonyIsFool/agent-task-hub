@@ -34,6 +34,10 @@ export type SessionView = {
   scheduled?: string
   /** When a scheduled wake-up last ran. */
   lastWakeMs?: number
+  /** When the person last typed in the chat: a turn after a later wake-up was scheduled. */
+  lastPromptMs?: number
+  /** The time the rest of the plan likely takes, at the recent pace. */
+  leftMs?: number
 }
 
 export type ConflictView = { path: string; sessions: string[]; lastMs: number }
@@ -44,10 +48,17 @@ export type Hub = {
   sessions: SessionView[]
   conflicts: ConflictView[]
   note?: string
+  /** The account's usage windows (5 hours, a week), as this chat's engine reports them. */
+  usage?: { kind: string; percent: number }[]
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'agent-task-hub': { hub: Shaped<Hub>; showEarlier: boolean }
+    'agent-task-hub': {
+      hub: Shaped<Hub>
+      showEarlier: boolean
+      /** The near-compaction reminder last sent: `<chat id>:note:<compactions>`. */
+      noted: string
+    }
   }
 }

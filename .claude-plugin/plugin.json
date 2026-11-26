@@ -1,6 +1,6 @@
 {
   "name": "agent-task-hub",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "See every Claude Code chat in your project in one pane beside the chat: plan progress, context left before auto-compaction, scheduled tasks, approvals and questions waiting on you, long-running commands, and files two chats both edited.",
   "author": {
     "name": "TonyIsFool"
@@ -22,13 +22,5 @@
     "claude-code-mod",
     "status"
   ],
-  "types": "./types/index.d.ts",
-  "userConfig": {
-    "openOnStart": {
-      "type": "boolean",
-      "title": "Open on start",
-      "description": "Open the Agent Task Hub pane in every new chat. Off: open it with /task-hub.",
-      "default": true
-    }
-  }
+  "types": "./types/index.d.ts"
 }

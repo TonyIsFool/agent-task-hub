@@ -5,11 +5,17 @@ export type StepStatus = 'pending' | 'in_progress' | 'completed'
 export type Step = { content: string; status: StepStatus }
 
 export type Tracker = {
+  /** The chat this transcript belongs to: lines another chat wrote were copied in (a fork). */
+  ownId?: string
   /** Byte offset of the next unread line in the transcript. */
   offset: number
   plan: Step[]
   /** Context tokens at each plan-progress event, oldest first (last 30). */
   marks: number[]
+  /** When each of those plan-progress events happened, in ms (last 30). */
+  markTimes: number[]
+  /** Plan steps were advanced with no plan seen: the plan began before what was read. */
+  isPlanOrphan?: boolean
   /** Input-side tokens of the latest main-thread response. */
   context?: number
   model?: string
@@ -31,6 +37,8 @@ export type Tracker = {
   launching: Record<string, { label: string; ms: number }>
   /** Edited file (normalized path) -> when, in ms. */
   edits: Record<string, number>
+  /** The same, for edits this chat made itself: a fork's copied history left out. */
+  ownEdits: Record<string, number>
   /** Edited file (normalized) -> the path as the session spelled it, for display. */
   spelling: Record<string, string>
   /** Read or searched path (normalized) -> when, in ms. */
@@ -39,10 +47,12 @@ export type Tracker = {
   lastEventMs?: number
 }
 
-export const newTracker = (): Tracker => ({
+export const newTracker = (ownId?: string): Tracker => ({
+  ownId,
   offset: 0,
   plan: [],
   marks: [],
+  markTimes: [],
   compactions: 0,
   openQuestions: [],
   running: {},
@@ -50,6 +60,7 @@ export const newTracker = (): Tracker => ({
   taskIds: {},
   launching: {},
   edits: {},
+  ownEdits: {},
   spelling: {},
   reads: {},
 })
@@ -158,8 +169,11 @@ export function ingest(t: Tracker, d: Json): void {
       if (!b || b.type !== 'tool_use') continue
       const input: Json = b.input ?? {}
       if (b.name === PLAN_TOOL) {
+        if (Array.isArray(input.items)) t.isPlanOrphan = false
+        else if (t.plan.length === 0) t.isPlanOrphan = true
         t.plan = applyPlan(t.plan, input)
         if (t.context !== undefined) t.marks = [...t.marks, t.context].slice(-30)
+        if (t.lastEventMs !== undefined) t.markTimes = [...t.markTimes, t.lastEventMs].slice(-30)
       } else if (b.name === WRAP_TOOL) {
         t.plan = t.plan.map(s => ({ ...s, status: 'completed' }))
         if (typeof input.recap === 'string') t.recap = input.recap
@@ -177,6 +191,10 @@ export function ingest(t: Tracker, d: Json): void {
         if (typeof p === 'string' && t.lastEventMs !== undefined) {
           t.edits[normalizePath(p)] = t.lastEventMs
           t.spelling[normalizePath(p)] = p.replace(/\\/g, '/')
+          // A fork copies its parent's lines, each still naming the parent: those
+          // edits are the parent's, not this chat's (they still say what it works on).
+          const isOwn = !t.ownId || typeof d.sessionId !== 'string' || d.sessionId === t.ownId
+          if (isOwn) t.ownEdits[normalizePath(p)] = t.lastEventMs
         }
       } else if (READ_TOOLS.has(b.name)) {
         const p = input.file_path ?? input.path
@@ -227,6 +245,7 @@ export function ingest(t: Tracker, d: Json): void {
     t.pendingAsk = undefined
     t.askMs = undefined
     t.running = {} // a new prompt means nothing from before is still running
+    t.openQuestions = [] // nor is a question from before still open
     // A finished plan belongs to the last request; this one starts fresh.
     if (t.plan.length > 0 && t.plan.every(s => s.status === 'completed')) t.plan = []
   }
@@ -306,21 +325,24 @@ export function forecast(
 export type SessionEdits = { id: string; name: string; edits: Record<string, number> }
 export type Conflict = { path: string; sessions: string[]; lastMs: number }
 
-/** Files edited by two or more sessions since `sinceMs`. */
+/**
+ * Files edited by two or more chats since `sinceMs`. Chats are told apart by id, not
+ * name: two chats of one name (a fork often keeps it) are still two.
+ */
 export function findConflicts(list: SessionEdits[], sinceMs: number): Conflict[] {
-  const byPath = new Map<string, { names: Set<string>; lastMs: number }>()
+  const byPath = new Map<string, { chats: Map<string, string>; lastMs: number }>()
   for (const s of list) {
     for (const [path, ms] of Object.entries(s.edits)) {
       if (ms < sinceMs) continue
-      const entry = byPath.get(path) ?? { names: new Set<string>(), lastMs: 0 }
-      entry.names.add(s.name)
+      const entry = byPath.get(path) ?? { chats: new Map<string, string>(), lastMs: 0 }
+      entry.chats.set(s.id, s.name)
       entry.lastMs = Math.max(entry.lastMs, ms)
       byPath.set(path, entry)
     }
   }
   const out: Conflict[] = []
   for (const [path, e] of byPath) {
-    if (e.names.size >= 2) out.push({ path, sessions: [...e.names].sort(), lastMs: e.lastMs })
+    if (e.chats.size >= 2) out.push({ path, sessions: [...e.chats.values()].sort(), lastMs: e.lastMs })
   }
   return out.sort((a, b) => b.lastMs - a.lastMs)
 }
@@ -450,4 +472,79 @@ export function verdictLabel(v: {
   if (v.verdict === 'tight') return { text: `tight: needs ~${formatTokens(v.need)}`, color: 'warning' }
   if (v.verdict === 'over') return { text: `won't fit: needs ~${formatTokens(v.need)}`, color: 'error' }
   return undefined
+}
+
+/** Decodes UTF-8 bytes to text (a character cut at either end becomes U+FFFD). */
+export function utf8Decode(bytes: Uint8Array): string {
+  if (typeof TextDecoder !== 'undefined') return new TextDecoder().decode(bytes)
+  let out = ''
+  for (let i = 0; i < bytes.length; ) {
+    const b = bytes[i]
+    const n = b < 0x80 ? 1 : b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 0
+    if (n === 0 || i + n > bytes.length) {
+      out += '\ufffd'
+      i += 1
+      continue
+    }
+    let cp = n === 1 ? b : b & (0xff >> (n + 1))
+    for (let k = 1; k < n; k++) cp = (cp << 6) | (bytes[i + k] & 0x3f)
+    out += String.fromCodePoint(cp)
+    i += n
+  }
+  return out
+}
+
+/**
+ * A tool's name as a person reads it: a connector tool `mcp__Claude_Browser__navigate`
+ * reads "navigate (Claude Browser)"; a built-in tool keeps its own name.
+ */
+export function toolLabel(name: string): string {
+  const parts = name.split('__')
+  if (parts[0] !== 'mcp' || parts.length < 3) return name
+  const server = parts[1].replace(/_/g, ' ').trim()
+  const tool = parts.slice(2).join('__')
+  return server ? `${tool} (${server})` : tool
+}
+
+/** The colour of a chat's context use: yellow from 80% of its limit, red from 95%. */
+export function fullColor(share: number): 'warning' | 'error' | undefined {
+  return share >= 0.95 ? 'error' : share >= 0.8 ? 'warning' : undefined
+}
+
+/** "A and B", or "A, B and C". */
+export function nameList(names: readonly string[]): string {
+  return names.length <= 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** A gap between plan steps longer than this is a pause (the person away), not work. */
+const STEP_PAUSE_MS = 30 * 60_000
+
+/**
+ * The time the rest of a plan likely takes: the recent steps' average (the last three,
+ * pauses left out) times the steps left. Undefined with no steps left or no pace yet.
+ */
+export function timeLeft(markTimes: readonly number[], remainingSteps: number): number | undefined {
+  if (remainingSteps <= 0) return undefined
+  const gaps: number[] = []
+  for (let i = 1; i < markTimes.length; i++) {
+    const gap = markTimes[i] - markTimes[i - 1]
+    if (gap > 0 && gap <= STEP_PAUSE_MS) gaps.push(gap)
+  }
+  const recent = gaps.slice(-3)
+  if (recent.length === 0) return undefined
+  return Math.round((recent.reduce((a, b) => a + b, 0) / recent.length) * remainingSteps)
+}
+
+/** A usage window's short name: `five_hour` is "5h", `seven_day` is "week". */
+export function usageName(kind: string): string {
+  return kind === 'five_hour' ? '5h' : kind === 'seven_day' ? 'week' : kind === 'spend_limit' ? 'spend' : kind.replace(/_/g, ' ')
+}
+
+/** The status line's words: "1 waiting · 2 working", or undefined when nothing is on. */
+export function statusSummary(views: readonly { isSelf: boolean; status: string; needs?: string }[]): string | undefined {
+  const others = views.filter(v => !v.isSelf)
+  const waiting = others.filter(v => v.needs).length
+  const working = others.filter(v => !v.needs && v.status === 'busy').length
+  const parts = [waiting > 0 ? `${waiting} waiting` : '', working > 0 ? `${working} working` : ''].filter(Boolean)
+  return parts.length > 0 ? `Task hub: ${parts.join(' · ')}` : undefined
 }
