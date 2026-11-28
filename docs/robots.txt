@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tonyisfool.github.io/agent-task-hub/sitemap.xml

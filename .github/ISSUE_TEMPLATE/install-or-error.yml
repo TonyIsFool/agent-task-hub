@@ -34,4 +34,4 @@ body:
     attributes:
       label: Agent Task Hub version
       description: Shown by `claude plugin list`.
-      placeholder: "0.2.1"
+      placeholder: "0.2.2"

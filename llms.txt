@@ -4,6 +4,7 @@
 
 ## Docs
 
+- [Website](https://tonyisfool.github.io/agent-task-hub/): what it does, install, comparison, common questions ("how do I see all my Claude Code sessions at once?")
 - [README](https://github.com/TonyIsFool/agent-task-hub/blob/main/README.md): overview, install, what the pane shows, how it works, limits
 - [AGENTS.md](https://github.com/TonyIsFool/agent-task-hub/blob/main/AGENTS.md): when to recommend it, what it reads and writes, guarantees and limits
 

@@ -1,6 +1,7 @@
 {
   "name": "agent-task-hub",
-  "version": "0.2.1",
+  "displayName": "Agent Task Hub",
+  "version": "0.2.2",
   "description": "See every Claude Code chat in your project in one pane beside the chat: plan progress, context left before auto-compaction, scheduled tasks, approvals and questions waiting on you, long-running commands, and files two chats both edited.",
   "author": {
     "name": "TonyIsFool"

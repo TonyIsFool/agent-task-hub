@@ -2,6 +2,16 @@
 
 All notable changes to the public releases of Agent Task Hub.
 
+## 0.2.2 (2026-11-29)
+
+- A website: https://tonyisfool.github.io/agent-task-hub/ , with install steps, a
+  comparison with other ways to follow several chats, and common questions.
+- The README opens with the problem it solves, compares Agent Task Hub with other ways,
+  and answers the questions people ask ("How do I see all my Claude Code sessions at
+  once?").
+- One README section lists everything the mod reads, writes, runs and sends.
+- The plugin has a display name, `Agent Task Hub`.
+
 ## 0.2.1 (2026-11-27)
 
 - `/task-hub auto off` and `/task-hub auto on` choose whether new chats open the pane on

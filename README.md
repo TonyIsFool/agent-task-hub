@@ -1,21 +1,21 @@
 <div align="center">
 <h1>Agent Task Hub</h1>
-<p><strong>Every Claude Code chat in your project, in one pane.</strong></p>
-<p>A Claude Code mod that shows what each of your chats is doing, how far along it is, how much context it has left, and what is waiting on you.</p>
+<p><strong>Running several Claude Code chats at once? See them all in one pane.</strong></p>
+<p>A dashboard for your Claude Code sessions: what each chat is doing, how far along it is, how much context it has left before compaction, and which one is waiting on you.</p>
 <p>
   <img src="https://img.shields.io/badge/Claude_Code-mod-D97757?style=flat-square" alt="Claude Code mod">
-  <img src="https://img.shields.io/badge/version-0.2.1-167D68?style=flat-square" alt="Version 0.2.1">
+  <img src="https://img.shields.io/badge/version-0.2.2-167D68?style=flat-square" alt="Version 0.2.2">
   <img src="https://img.shields.io/badge/reads-local_files_only-167D68?style=flat-square" alt="Reads local files only">
   <a href="#validation"><img src="https://img.shields.io/badge/tests-57%2F57_passing-167D68?style=flat-square" alt="57 of 57 automatic tests passing"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-PolyForm_Strict_1.0.0-555555?style=flat-square" alt="PolyForm Strict 1.0.0 license"></a>
 </p>
 <p><a href="#install"><img src="https://img.shields.io/badge/Install-Claude_Code_mod-0969DA?style=for-the-badge" alt="Install the Claude Code mod"></a></p>
-<p><a href="#quick-start">Quick Start</a> | <a href="#for-ai-agents">For AI Agents</a> | <a href="#what-the-pane-shows">What It Shows</a> | <a href="#how-it-works">How It Works</a> | <a href="#faq">FAQ</a> | <a href="AGENTS.md">Agent Guide</a></p>
+<p><a href="#quick-start">Quick Start</a> | <a href="#for-ai-agents">For AI Agents</a> | <a href="#what-the-pane-shows">What It Shows</a> | <a href="#how-it-works">How It Works</a> | <a href="#compared-with-other-ways">Compare</a> | <a href="#faq">FAQ</a> | <a href="AGENTS.md">Agent Guide</a></p>
 </div>
 
 <p align="center"><img src="docs/images/demo.gif" alt="The Agent Task Hub pane over a working session: a chat asks for approval, another runs near auto-compaction, two chats edit one file, and one finishes, each with a toast" width="560"><br><sub>Illustration with made-up chats.</sub></p>
 
-**Your chats -> one pane -> progress, context, what needs you.**
+**Lost track of your Claude Code chats? One pane shows them all: progress, context, what needs you.**
 
 Run three or four chats at once (one rendering, one writing docs, one on a schedule)
 and you lose track: which one is waiting for you, which one is about to run out of
@@ -209,6 +209,23 @@ under its new session id.
 
 </details>
 
+## What It Reads, Writes, Runs and Sends
+
+Everything the mod does outside drawing the pane, in one place:
+
+| Kind | What | Why |
+| --- | --- | --- |
+| Reads | `~/.claude/sessions/*.json` and the chats' transcripts under `~/.claude/projects/` | Which chats are live, their plans, context, questions and edits |
+| Reads | `~/.claude/agent-task-hub/*.json` | The other chats' status files |
+| Writes | `~/.claude/agent-task-hub/<session id>.json`, about 200 bytes | This chat's own status, for the other panes |
+| Writes | The plugin's own store | English titles, `/task-hub auto` and `quiet` settings, when old status files were last cleaned |
+| Runs | `tasklist /FO CSV /NH` (Windows) or `ps -A -o pid=` | Once a minute at most, only for chats without a fresh status file: is the process still alive |
+| Runs | `cmd /c del /q <id>.json` (Windows) or `rm -f <id>.json`, inside `~/.claude/agent-task-hub/` | Once a day: delete status files not written for a week |
+| Sends | Non-English plan step titles to Claude Haiku, through Claude Code's own model call | A short English title for the pane, cached |
+| Adds | One note to this chat near auto-compaction | So the model wraps up before compaction |
+
+Nothing is sent anywhere else: no network requests, no analytics, no credentials read.
+
 ## Validation
 
 **57 automatic tests, run against Claude Code's own engine.** `claude plugin test .` loads
@@ -238,7 +255,63 @@ tests/                   Automatic tests
 docs/images/             README images
 ```
 
+## Compared With Other Ways
+
+**What people do today to keep track of several chats, and what each leaves out.**
+
+| Way | What you get | What is missing |
+| --- | --- | --- |
+| Switch between chats by hand | The full conversation | You only see one at a time, and miss the one that waits on you |
+| Run `/context` in each chat | Exact context use for that chat | One chat at a time, and no sense of whether the plan still fits |
+| A custom status line | One line about the chat you are in | Nothing about the other chats |
+| Several terminal windows side by side | Every chat on screen | Hard to read at a glance; no plan progress, context forecast or file conflicts |
+| **Agent Task Hub** | Every chat in the project at a glance: plan, context, approvals, schedules, conflicts | Chats on this machine only; cloud routines are not shown |
+
 ## FAQ
+
+<details open>
+<summary>How do I see all my Claude Code sessions at once?</summary>
+
+Install Agent Task Hub. Every chat whose folder is inside your project shows up in one
+pane beside the chat, with its status (working, waiting for you, idle), its plan as a
+progress bar and its context use. Type `/task-hub` to open the pane at any time.
+
+</details>
+
+<details>
+<summary>How much context does a Claude Code chat have left before auto-compaction?</summary>
+
+The pane shows each chat's context against its auto-compaction point, such as
+`588k of 967k (61%)`, yellow from 80% and red from 95%. While a plan runs it also says
+whether the rest of the plan likely fits (`enough for the plan`, `tight`, `won't fit`).
+
+</details>
+
+<details>
+<summary>How do I know when another Claude Code chat needs my approval or has finished?</summary>
+
+A chat with an open **Allow?** dialog, a question or a decision for you is marked
+**Waiting for you** in yellow, and a toast appears in the chat you are typing in. A
+chat that finishes a turn you started gets a `finished` toast too.
+
+</details>
+
+<details>
+<summary>Can it monitor parallel agents, background tasks and scheduled /loop runs?</summary>
+
+Yes. Background work is listed by name, long commands show as **Running** with their
+time, and `/loop` or scheduled wake-ups read as plain words (`Every 10 min, next 14:10`).
+
+</details>
+
+<details>
+<summary>Does it work in the terminal and in the desktop app?</summary>
+
+Both. In a terminal narrower than 144 columns the pane waits until you type `/task-hub`.
+A narrow pane switches to a compact layout on its own.
+
+</details>
+
 
 <details>
 <summary>Does it send my code or chats anywhere?</summary>

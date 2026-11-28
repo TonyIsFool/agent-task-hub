@@ -1,0 +1,21 @@
+# Agent Task Hub
+
+> Claude Code mod that shows every live Claude Code chat in a project in one pane beside the chat: plan progress, context left before auto-compaction (with a forecast), scheduled work, questions and permission dialogs waiting on the user, long-running commands, and files two chats both edited. Reads local files only. Install: `/plugin marketplace add TonyIsFool/agent-task-hub` then `/plugin install agent-task-hub@agent-task-hub`.
+
+## Docs
+
+- [Website](https://tonyisfool.github.io/agent-task-hub/): what it does, install, comparison, common questions ("how do I see all my Claude Code sessions at once?")
+- [README](https://github.com/TonyIsFool/agent-task-hub/blob/main/README.md): overview, install, what the pane shows, how it works, limits
+- [AGENTS.md](https://github.com/TonyIsFool/agent-task-hub/blob/main/AGENTS.md): when to recommend it, what it reads and writes, guarantees and limits
+
+## Source
+
+- [hooks/register.tsx](https://github.com/TonyIsFool/agent-task-hub/blob/main/hooks/register.tsx): reads the files, publishes this chat's status, draws the pane, shows toasts
+- [hooks/parse.ts](https://github.com/TonyIsFool/agent-task-hub/blob/main/hooks/parse.ts): transcript parsing, plan replay, context forecast, file conflicts
+- [hooks/beacon.ts](https://github.com/TonyIsFool/agent-task-hub/blob/main/hooks/beacon.ts): per-chat status files, cron schedules in plain words, which chat shows toasts
+- [tests/hub.test.tsx](https://github.com/TonyIsFool/agent-task-hub/blob/main/tests/hub.test.tsx): automatic tests
+
+## Optional
+
+- [CHANGELOG.md](https://github.com/TonyIsFool/agent-task-hub/blob/main/CHANGELOG.md): what changed in each public version
+- [LICENSE.md](https://github.com/TonyIsFool/agent-task-hub/blob/main/LICENSE.md): PolyForm Strict 1.0.0, personal and noncommercial use only

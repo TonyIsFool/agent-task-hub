@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Task Hub: a dashboard for all your Claude Code chats</title>
+<meta name="description" content="See every Claude Code chat in your project in one pane: plan progress, context left before auto-compaction, which chat is waiting for your approval, scheduled /loop runs and files two chats both edited.">
+<link rel="canonical" href="https://tonyisfool.github.io/agent-task-hub/">
+<link rel="icon" href="images/icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Agent Task Hub: every Claude Code chat in one pane">
+<meta property="og:description" content="Plan progress, context left before compaction, approvals waiting on you and file conflicts, for all your Claude Code sessions at once.">
+<meta property="og:url" content="https://tonyisfool.github.io/agent-task-hub/">
+<meta property="og:image" content="https://tonyisfool.github.io/agent-task-hub/images/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Agent Task Hub",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "description": "A Claude Code mod that shows every chat in your project in one pane: plan progress, context left before auto-compaction, approvals waiting on you, scheduled tasks and file conflicts.",
+  "url": "https://tonyisfool.github.io/agent-task-hub/",
+  "codeRepository": "https://github.com/TonyIsFool/agent-task-hub",
+  "author": { "@type": "Person", "name": "Tony Lu" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "How do I see all my Claude Code sessions at once?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Install Agent Task Hub. Every chat whose folder is inside your project shows up in one pane beside the chat, with its status, its plan as a progress bar and its context use. Type /task-hub to open the pane at any time." } },
+    { "@type": "Question", "name": "How much context does a Claude Code chat have left before auto-compaction?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Agent Task Hub shows each chat's context against its auto-compaction point, yellow from 80% and red from 95%, and while a plan runs whether the rest of the plan likely fits." } },
+    { "@type": "Question", "name": "How do I know when another Claude Code chat needs my approval or has finished?",
+      "acceptedAnswer": { "@type": "Answer", "text": "A chat with an open Allow dialog, a question or a decision is marked Waiting for you in yellow, and a toast appears in the chat you are typing in. A chat that finishes a turn you started gets a finished toast." } },
+    { "@type": "Question", "name": "Can it monitor parallel agents, background tasks and scheduled /loop runs?",
+      "acceptedAnswer": { "@type": "Answer", "text": "Yes. Background work is listed by name, long commands show as Running with their time, and /loop or scheduled wake-ups read as plain words with the next run." } },
+    { "@type": "Question", "name": "Does Agent Task Hub send my code or chats anywhere?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. It reads the records Claude Code already keeps on your machine and draws a pane. The only model calls give a plan step written in another language a short English title." } }
+  ]
+}
+</script>
+<style>
+  :root { --bg: #141416; --panel: #1b1b1b; --line: #2f2f2f; --text: #ececec; --dim: #9b9b9b;
+          --blue: #4c8dff; --yellow: #e5a33a; --purple: #a77bff; --green: #4cb860; --red: #ef6b6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.6;
+         font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 56px 24px 80px; }
+  header { display: grid; grid-template-columns: 1fr; gap: 32px; align-items: center; }
+  @media (min-width: 860px) { header { grid-template-columns: 1fr 440px; } }
+  h1 { font-size: 44px; line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.5px; }
+  h2 { font-size: 24px; margin: 64px 0 16px; }
+  h3 { font-size: 17px; margin: 0 0 6px; }
+  p { margin: 0 0 14px; }
+  .lead { font-size: 19px; color: #cfcfcf; }
+  .dim { color: var(--dim); }
+  .demo { width: 100%; border: 1px solid #3a3a3a; border-radius: 10px; display: block; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .button { display: inline-block; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+  .primary { background: #0969da; color: #fff; }
+  .secondary { border: 1px solid #444; color: var(--text); }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+        overflow-x: auto; font-size: 14px; }
+  code { font-family: Consolas, "SF Mono", Menlo, monospace; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  tr.ours td { color: #fff; }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin: 10px 0 0; color: #d0d0d0; }
+  a { color: #79b8ff; }
+  footer { margin-top: 72px; color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Every Claude Code chat in one pane</h1>
+      <p class="lead">Running several Claude Code chats at once? Agent Task Hub shows them all beside your chat: what each one is doing, how much context it has left before compaction, and which one is waiting on you.</p>
+      <p class="dim">A free Claude Code mod. Reads the records Claude Code already keeps on your machine; changes nothing in your project.</p>
+      <div class="buttons">
+        <a class="button primary" href="https://github.com/TonyIsFool/agent-task-hub#quick-start">Install</a>
+        <a class="button secondary" href="https://github.com/TonyIsFool/agent-task-hub">View on GitHub</a>
+      </div>
+    </div>
+    <img class="demo" src="images/demo.gif" alt="The Agent Task Hub pane: a chat asks for approval, another runs near auto-compaction, two chats edit one file, and one finishes. Made-up chats." width="440">
+  </header>
+
+  <h2>Install in two lines</h2>
+  <p>In Claude Code:</p>
+  <pre><code>/plugin marketplace add TonyIsFool/agent-task-hub
+/plugin install agent-task-hub@agent-task-hub</code></pre>
+  <p class="dim">Start a new chat and the pane opens beside it. <code>/task-hub</code> opens it again at any time.</p>
+
+  <h2>What you see at a glance</h2>
+  <div class="grid">
+    <div class="card"><h3><span class="dot" style="background:var(--blue)"></span>Plan progress</h3><p>Each chat's task list as a progress bar, the step in hand, and about how long the rest will take.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--yellow)"></span>What waits on you</h3><p>An open <strong>Allow?</strong> dialog, a question or a decision, marked in yellow, with a toast.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--purple)"></span>Context left</h3><p>Context against the auto-compaction point, yellow from 80%, and whether the plan still fits.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--red)"></span>File conflicts</h3><p>A warning when two chats edit the same project file.</p></div>
+    <div class="card"><h3><span class="dot" style="background:var(--green)"></span>Schedules and background work</h3><p><code>/loop</code> and scheduled runs in plain words, background tasks by name, long commands with their time.</p></div>
+    <div class="card"><h3><span class="dot" style="background:#9b9b9b"></span>Account usage</h3><p>How much of the 5-hour and weekly usage windows is gone, for when many chats run at once.</p></div>
+  </div>
+
+  <h2>Compared with other ways</h2>
+  <table>
+    <tr><th>Way</th><th>What you get</th><th>What is missing</th></tr>
+    <tr><td>Switch between chats by hand</td><td>The full conversation</td><td>One chat at a time; easy to miss the one that waits on you</td></tr>
+    <tr><td>Run <code>/context</code> in each chat</td><td>Exact context use for that chat</td><td>One chat at a time; no sense of whether the plan still fits</td></tr>
+    <tr><td>A custom status line</td><td>One line about the chat you are in</td><td>Nothing about the other chats</td></tr>
+    <tr><td>Several terminal windows</td><td>Every chat on screen</td><td>Hard to read at a glance; no progress, forecast or conflicts</td></tr>
+    <tr class="ours"><td><strong>Agent Task Hub</strong></td><td>Every chat in the project at a glance</td><td>Chats on this machine only</td></tr>
+  </table>
+
+  <h2>Questions</h2>
+  <details open><summary>How do I see all my Claude Code sessions at once?</summary><p>Install Agent Task Hub. Every chat whose folder is inside your project shows up in one pane beside the chat, with its status, its plan as a progress bar and its context use. Type <code>/task-hub</code> to open the pane at any time.</p></details>
+  <details><summary>How much context does a Claude Code chat have left before auto-compaction?</summary><p>The pane shows each chat's context against its auto-compaction point, such as <code>588k of 967k (61%)</code>, yellow from 80% and red from 95%. While a plan runs it also says whether the rest likely fits.</p></details>
+  <details><summary>How do I know when another chat needs my approval or has finished?</summary><p>A chat with an open Allow? dialog, a question or a decision is marked <strong>Waiting for you</strong> in yellow, and a toast appears in the chat you are typing in. A chat that finishes a turn you started gets a <code>finished</code> toast.</p></details>
+  <details><summary>Can it monitor parallel agents and scheduled /loop runs?</summary><p>Yes. Background work is listed by name, long commands show as Running with their time, and <code>/loop</code> or scheduled wake-ups read as plain words with the next run.</p></details>
+  <details><summary>Does it send my code or chats anywhere?</summary><p>No. It reads the records Claude Code already keeps on your machine and draws a pane. The only model calls give a plan step written in another language a short English title, through your own Claude session.</p></details>
+  <details><summary>Does it work in the terminal and the desktop app?</summary><p>Both. In a terminal narrower than 144 columns the pane waits for <code>/task-hub</code>; a narrow pane switches to a compact layout.</p></details>
+
+  <footer>
+    <p>Agent Task Hub by Tony Lu · <a href="https://github.com/TonyIsFool/agent-task-hub">GitHub</a> · <a href="llms.txt">llms.txt</a> · Free for personal, noncommercial use (PolyForm Strict 1.0.0). All chats shown on this page are made up.</p>
+  </footer>
+</main>
+</body>
+</html>
