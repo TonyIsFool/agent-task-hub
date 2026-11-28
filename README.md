@@ -4,7 +4,7 @@
 <p>A dashboard for your Claude Code sessions: what each chat is doing, how far along it is, how much context it has left before compaction, and which one is waiting on you.</p>
 <p>
   <img src="https://img.shields.io/badge/Claude_Code-mod-D97757?style=flat-square" alt="Claude Code mod">
-  <img src="https://img.shields.io/badge/version-0.2.2-167D68?style=flat-square" alt="Version 0.2.2">
+  <img src="https://img.shields.io/badge/version-0.2.3-167D68?style=flat-square" alt="Version 0.2.3">
   <img src="https://img.shields.io/badge/reads-local_files_only-167D68?style=flat-square" alt="Reads local files only">
   <a href="#validation"><img src="https://img.shields.io/badge/tests-57%2F57_passing-167D68?style=flat-square" alt="57 of 57 automatic tests passing"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-PolyForm_Strict_1.0.0-555555?style=flat-square" alt="PolyForm Strict 1.0.0 license"></a>

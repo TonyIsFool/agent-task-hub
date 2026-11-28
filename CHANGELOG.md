@@ -2,6 +2,10 @@
 
 All notable changes to the public releases of Agent Task Hub.
 
+## 0.2.3 (2026-11-29)
+
+- The website confirms its ownership to Google Search Console, so it can be found in search.
+
 ## 0.2.2 (2026-11-29)
 
 - A website: https://tonyisfool.github.io/agent-task-hub/ , with install steps, a
